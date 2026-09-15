@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#05090C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Leviathan Locator</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="./assets/ui.css">
+</head>
+<body>
+<div id="app">
+  <div class="strip">
+    <div class="chip" id="c-relay"><span class="k" id="k-relay">Relay</span><span class="v"><span class="dot"></span>Checking</span></div>
+    <div class="chip" id="c-station"><span class="k">Station</span><span class="v"><span class="dot"></span>Unknown</span></div>
+    <div class="chip" id="c-fix"><span class="k">Fix age</span><span class="v">&mdash;</span></div>
+  </div>
+
+  <div class="stage">
+    <button id="btn" aria-live="polite">
+      <svg id="ring" viewBox="0 0 100 100" aria-hidden="true">
+        <circle id="ring-p" cx="50" cy="50" r="49" stroke="var(--live)"
+                stroke-dasharray="308" stroke-dashoffset="308"></circle>
+      </svg>
+      <span class="face">
+        <span class="word" id="btn-word">Locate me</span>
+        <span class="sub" id="btn-sub">Tap to start</span>
+      </span>
+    </button>
+    <p class="hint" id="hint">Example position shown &middot; tap to use real GPS</p>
+  </div>
+
+  <div class="grid">
+    <div class="cell">
+      <div class="k">Bearing from station</div>
+      <div class="n" id="r-bear">269.9<span class="u">&deg;T</span></div>
+      <div class="note" id="r-bear-n">pan 158.2&deg; &middot; +111.69 boresight</div>
+    </div>
+    <div class="cell">
+      <div class="k">Range</div>
+      <div class="n" id="r-rng">0.99<span class="u">mi</span></div>
+      <div class="note" id="r-rng-n">1.60 km &middot; tilt &minus;0.31&deg;</div>
+    </div>
+    <div class="cell">
+      <div class="k">Zoom it needs</div>
+      <div class="n cy" id="r-zoom">27<span class="u">&times;</span></div>
+      <div class="note" id="r-zoom-n">you &asymp; 60 px tall in frame</div>
+    </div>
+    <div class="cell">
+      <div class="k">Position error</div>
+      <div class="n" id="r-err">9<span class="u">m</span></div>
+      <div class="note" id="r-err-n">GPS 8 m + 6 s lead at 1.4 kn</div>
+    </div>
+    <div class="cell span">
+      <div>
+        <div class="k">Field of regard &middot; 208&deg;&ndash;332&deg;</div>
+        <div class="note" id="r-arc-n">The head can reach you here.</div>
+      </div>
+      <div class="arc" id="r-arc">In arc</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <p class="banner" id="banner"><b>Not a safety device.</b> A PFD and a VHF or PLB do not
+      become optional because a camera is looking at you.</p>
+    <button id="sun" aria-pressed="false">Sun</button>
+  </div>
+</div>
+
+<script>window.LOCATOR_API = "https://axgwhvyiwplcsjichkkj.supabase.co/functions/v1/locator";</script>
+<script type="module">
+import { solveAim, sunConflict } from "./assets/station.js";
+
+/* Where the relay lives. Same-origin by default; the static build bakes in an absolute URL
+   because GitHub Pages serves the page and Supabase serves the API. */
+const API_BASE = window.LOCATOR_API || "";
+const q = (id) => document.getElementById(id);
+const btn = q("btn"), word = q("btn-word"), sub = q("btn-sub"), hint = q("hint"), ringP = q("ring-p");
+
+/* TOKEN. Handed over once as a URL fragment, kept locally, stripped from the bar.
+   A fragment never reaches the server and never lands in a log or a Referer header. */
+const LS_TOKEN = "beacon.token", LS_OP = "beacon.operator", SS_SESSION = "beacon.session";
+(function adoptToken() {
+    const k = location.hash.match(/(?:^|[#&])k=([^&]+)/);
+    const o = location.hash.match(/(?:^|[#&])op=([^&]+)/);
+    if (!k && !o) return;
+    try {
+        if (k) localStorage.setItem(LS_TOKEN, decodeURIComponent(k[1]));
+        if (o) localStorage.setItem(LS_OP, decodeURIComponent(o[1]).slice(0, 24));
+    } catch (e) {}
+    history.replaceState(null, "", location.pathname + location.search);
+})();
+const token = (() => { try { return localStorage.getItem(LS_TOKEN) || ""; } catch (e) { return ""; } })();
+const operatorName = (() => { try { return localStorage.getItem(LS_OP) || "operator"; } catch (e) { return "operator"; } })();
+
+function sessionId() {
+    try {
+        let s = sessionStorage.getItem(SS_SESSION);
+        if (!s) {
+            s = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+            sessionStorage.setItem(SS_SESSION, s);
+        }
+        return s;
+    } catch (e) { return "s" + Date.now().toString(36); }
+}
+
+function setChip(el, cls, html) {
+    el.className = "chip" + (cls ? " " + cls : "");
+    el.querySelector(".v").innerHTML = html;
+}
+const dot = (t) => "<span class=\"dot\"></span>" + t;
+const unit = (u) => "<span class=\"u\">" + u + "</span>";
+
+let live = false, lastFix = null, sentCount = 0, lastPostOk = null, durable = null;
+
+function paint(fix) {
+    const s = solveAim(fix);
+    const sc = sunConflict(s.bearingDeg, s.tiltDeg);
+
+    q("r-bear").innerHTML = s.bearingDeg.toFixed(1) + unit("&deg;T");
+    q("r-bear-n").textContent = "pan " + s.panDeg.toFixed(1) + "° · +111.69 boresight";
+    q("r-rng").innerHTML = s.rangeMi.toFixed(2) + unit("mi");
+    q("r-rng-n").textContent = s.rangeKm.toFixed(2) + " km · tilt " + s.tiltDeg.toFixed(2) + "°";
+    q("r-zoom").innerHTML = s.zoomX.toFixed(0) + unit("&times;");
+    q("r-zoom").className = "n " + (s.resolvable ? "cy" : "amber");
+    q("r-zoom-n").textContent = s.resolvable
+        ? "you ≈ " + s.subjectPx.toFixed(0) + " px tall in frame"
+        : "you ≈ " + s.subjectPx.toFixed(0) + " px — too small to hold";
+    q("r-err").innerHTML = s.errorM.toFixed(0) + unit("m");
+    q("r-err").className = "n " + (s.errorM > 40 ? "amber" : "");
+    q("r-err-n").textContent = "GPS " + s.accuracyM.toFixed(0) + " m + 6 s lead at "
+        + ((fix.speed || 0) * 1.94384).toFixed(1) + " kn";
+
+    let arcWord = s.inArc ? "In arc" : "Out of arc";
+    let arcNote = s.inArc
+        ? "The head can reach you here."
+        : "Head south-west into the arc — the station cannot turn this far.";
+    let arcColor = s.inArc ? "var(--station)" : "var(--red)";
+    if (s.inArc && sc.conflict) {
+        arcWord = "Into sun";
+        arcNote = "Aim is " + sc.separationDeg.toFixed(1) + "° from the sun. The station will refuse.";
+        arcColor = "var(--amber)";
+    } else if (s.inArc && sc.separationDeg != null && sc.separationDeg < 20) {
+        arcNote = "Reachable, but only " + sc.separationDeg.toFixed(0) + "° off the sun — expect glare.";
+    }
+    q("r-arc").textContent = arcWord;
+    q("r-arc").style.color = arcColor;
+    q("r-arc-n").textContent = arcNote;
+
+    btn.classList.toggle("warnstate", live && (!s.inArc || sc.conflict));
+    return s;
+}
+
+const EXAMPLE = { lat: 36.8034, lon: -121.8060, accuracy: 8, speed: 0.72, heading: 270, t: Date.now() };
+paint(EXAMPLE);
+
+/* The station holds the head ~20 s and expires anything older than 90 s, so publishing
+   faster than that only queues rows that expire unread. Display updates at GPS rate;
+   the queue is written at the rate the station can actually act on. */
+const PUBLISH_EVERY_MS = 15000;
+let lastPostAt = 0;
+
+async function postFix(fix, solved, force) {
+    if (!token) { lastPostOk = false; return; }
+    const now = Date.now();
+    if (!force && now - lastPostAt < PUBLISH_EVERY_MS) return;
+    lastPostAt = now;
+    try {
+        const res = await fetch(API_BASE + "/api/fix", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+            body: JSON.stringify({
+                session: sessionId(), t: fix.t, lat: fix.lat, lon: fix.lon,
+                accuracy: fix.accuracy, speed: fix.speed, heading: fix.heading,
+                rangeKm: solved ? solved.rangeKm : null,
+            }),
+            keepalive: true,
+        });
+        const body = await res.json().catch(() => ({}));
+        lastPostOk = res.ok || res.status === 429;
+        if (res.ok) { sentCount++; durable = true; }
+    } catch (e) { lastPostOk = false; }
+}
+
+const STATE_WORDS = {
+    pending: ["", "Queued"],
+    accepted: ["ok", "Accepted"],
+    slewing: ["ok", "Slewing"],
+    on_target: ["ok", "ON YOU"],
+    refused: ["warn", "Refused"],
+    expired: ["warn", "Expired"],
+    done: ["", "Released"],
+};
+
+async function pollAck() {
+    try {
+        const res = await fetch(API_BASE + "/api/live?session=" + encodeURIComponent(sessionId()), { cache: "no-store" });
+        if (!res.ok) return;
+        const feed = await res.json();
+        durable = feed.configured;
+        const st = feed.station;
+        if (!st || !st.state) { setChip(q("c-station"), "warn", dot("No verdict")); return; }
+        const m = STATE_WORDS[st.state] || ["", st.state];
+        setChip(q("c-station"), m[0], dot(m[1]));
+        if (st.state === "refused" && st.refuseReason) hint.textContent = st.refuseReason;
+    } catch (e) { /* the shore going quiet is not worth shouting about */ }
+}
+
+function paintRelayChip() {
+    if (!token) { setChip(q("c-relay"), "bad", dot("No key")); return; }
+    if (lastPostOk === null) { setChip(q("c-relay"), "", dot("Ready")); return; }
+    if (!lastPostOk) { setChip(q("c-relay"), "bad", dot("Send failed")); return; }
+    setChip(q("c-relay"), durable === false ? "warn" : "ok",
+        dot(durable === false ? "Not configured" : sentCount + " queued"));
+}
+
+if (!token) {
+    q("banner").innerHTML = "<b>No relay key on this phone.</b> Numbers are computed here and "
+        + "nothing is transmitted. Open the pairing link once to fix that.";
+}
+
+let watchId = null, wakeLock = null, ticker = null, acker = null;
+
+function setIdle(msg) {
+    live = false;
+    btn.classList.remove("live", "warnstate");
+    word.textContent = "Locate me";
+    sub.textContent = "Tap to start";
+    hint.textContent = msg || "Beacon stopped";
+    setChip(q("c-fix"), "", "&mdash;");
+    setChip(q("c-station"), "", dot("Unknown"));
+    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+    if (ticker) { clearInterval(ticker); ticker = null; }
+    if (acker) { clearInterval(acker); acker = null; }
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+}
+
+async function grabWakeLock() {
+    if (!navigator.wakeLock || !navigator.wakeLock.request) return;
+    try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+async function batteryLevel() {
+    try { const b = await navigator.getBattery(); return b.level; } catch (e) { return null; }
+}
+
+function start() {
+    if (!navigator.geolocation) { hint.textContent = "This browser has no GPS"; return; }
+    live = true; sentCount = 0; lastPostOk = null;
+    btn.classList.add("live");
+    word.textContent = "Acquiring";
+    sub.textContent = "waiting for GPS";
+    hint.textContent = "Hold the button to stop";
+    paintRelayChip();
+    grabWakeLock();
+
+    watchId = navigator.geolocation.watchPosition(async (p) => {
+        lastFix = {
+            lat: p.coords.latitude, lon: p.coords.longitude,
+            accuracy: p.coords.accuracy,
+            speed: Number.isFinite(p.coords.speed) ? p.coords.speed : 0,
+            heading: Number.isFinite(p.coords.heading) ? p.coords.heading : null,
+            battery: await batteryLevel(),
+            t: Date.now(),
+        };
+        const s = paint(lastFix);
+        await postFix(lastFix, s, sentCount === 0);
+        paintRelayChip();
+        word.textContent = !s.inArc ? "Out of arc" : (token && lastPostOk ? "Live" : "Local only");
+        sub.textContent = s.bearingDeg.toFixed(0) + "° · " + s.rangeMi.toFixed(2)
+            + " mi · " + s.zoomX.toFixed(0) + "×";
+    }, (err) => {
+        word.textContent = "No GPS";
+        sub.textContent = err.code === 1 ? "permission denied" : "signal lost";
+        setChip(q("c-fix"), "bad", dot("lost"));
+    }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
+
+    ticker = setInterval(() => {
+        if (!lastFix) return;
+        const age = Math.round((Date.now() - lastFix.t) / 1000);
+        setChip(q("c-fix"), age > 15 ? "bad" : "ok", dot(age + "s"));
+    }, 1000);
+
+    if (token) { pollAck(); acker = setInterval(pollAck, 5000); }
+}
+
+/* Tap to start. Stop only on a deliberate hold - asymmetric effort, asymmetric cost.
+   A brush against a wet screen must not end the outing. */
+const HOLD_MS = 1200;
+let holdTimer = null, holdRaf = null;
+function clearHold() {
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    if (holdRaf) { cancelAnimationFrame(holdRaf); holdRaf = null; }
+    ringP.style.strokeDashoffset = "308";
+}
+btn.addEventListener("pointerdown", () => {
+    if (!live) return;
+    const t0 = performance.now();
+    (function step() {
+        const p = Math.min(1, (performance.now() - t0) / HOLD_MS);
+        ringP.style.strokeDashoffset = String(308 * (1 - p));
+        if (p < 1) holdRaf = requestAnimationFrame(step);
+    })();
+    holdTimer = setTimeout(() => { clearHold(); setIdle("Beacon stopped"); }, HOLD_MS);
+});
+["pointerup", "pointerleave", "pointercancel"].forEach((e) => btn.addEventListener(e, clearHold));
+btn.addEventListener("click", () => { if (!live) start(); });
+
+q("sun").addEventListener("click", function () {
+    const on = document.documentElement.classList.toggle("sun");
+    this.setAttribute("aria-pressed", String(on));
+    try { localStorage.setItem("beacon.sun", on ? "1" : "0"); } catch (e) {}
+});
+try {
+    if (localStorage.getItem("beacon.sun") === "1") {
+        document.documentElement.classList.add("sun");
+        q("sun").setAttribute("aria-pressed", "true");
+    }
+} catch (e) {}
+
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && live) grabWakeLock();
+});
+
+q("k-relay").textContent = operatorName === "operator" ? "Relay" : operatorName;
+paintRelayChip();
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+</script>
+</body>
+</html>

@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Locator &middot; Shore</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="./assets/ui.css">
+<style>
+#app{max-width:1040px;margin:0 auto;gap:16px}
+.head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.head h1{font-size:19px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0}
+.head .sub{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.05em}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:16px;align-items:start}
+@media (max-width:820px){.cols{grid-template-columns:1fr}}
+.plan{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:12px}
+.plan svg{width:100%;height:auto;display:block}
+.aim{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:14px 16px}
+.aim h2{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
+  font-weight:600;margin:0 0 10px}
+.aimrow{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding:7px 0;border-bottom:1px solid var(--line)}
+.aimrow:last-of-type{border-bottom:none}
+.aimrow .lbl{font-family:var(--cond);font-size:13px;color:var(--dim)}
+.aimrow .val{font-family:var(--mono);font-size:21px;font-weight:600;font-variant-numeric:tabular-nums}
+.note2{font-family:var(--mono);font-size:10.5px;color:var(--faint);line-height:1.6;margin:10px 0 0}
+.act{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.act button{flex:1;min-height:44px;min-width:130px;border-radius:4px;border:1px solid var(--line);
+  background:var(--raise);color:var(--text);font-family:var(--cond);font-weight:600;font-size:13px;
+  letter-spacing:.05em;text-transform:uppercase;cursor:pointer}
+.act button.primary{background:var(--station);border-color:var(--station);color:#04191D}
+.act button:focus-visible{outline:2px solid var(--station);outline-offset:2px}
+.act button:disabled{opacity:.4;cursor:not-allowed}
+.banner2{font-family:var(--mono);font-size:10.5px;line-height:1.6;color:var(--faint);
+  border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:3px;
+  padding:10px 12px;margin:0}
+.banner2 b{color:var(--amber)}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="head">
+    <h1>Locator &middot; shore view</h1>
+    <span class="sub" id="clock">&mdash;</span>
+  </div>
+
+  <div class="strip">
+    <div class="chip" id="c-status"><span class="k" id="k-feed">Feed</span><span class="v"><span class="dot"></span>Loading</span></div>
+    <div class="chip" id="c-age"><span class="k">Fix age</span><span class="v">&mdash;</span></div>
+    <div class="chip" id="c-store"><span class="k">Queue</span><span class="v">&mdash;</span></div>
+  </div>
+
+  <div class="cols">
+    <div class="plan">
+      <svg id="plan" viewBox="0 0 620 420" role="img" aria-label="Plan view of the station arc and the beacon">
+        <defs>
+          <radialGradient id="water" cx="50%" cy="100%" r="90%">
+            <stop offset="0%" stop-color="#0E171C"/><stop offset="100%" stop-color="#05090C"/>
+          </radialGradient>
+        </defs>
+        <rect width="620" height="420" fill="url(#water)"/>
+        <g id="rings"></g>
+        <path id="arc" fill="rgba(79,217,232,.07)" stroke="#4FD9E8" stroke-width="1" stroke-dasharray="3 4"/>
+        <line id="aimline" x1="0" y1="0" x2="0" y2="0" stroke="#FF6B1A" stroke-width="2" opacity="0"/>
+        <g id="target" opacity="0">
+          <circle id="tgt-err" r="0" fill="rgba(255,107,26,.16)" stroke="#FF6B1A" stroke-width=".8"/>
+          <circle id="tgt-dot" r="5" fill="#FF6B1A"/>
+        </g>
+        <circle id="station" r="5" fill="#4FD9E8"/>
+        <g id="labels"></g>
+      </svg>
+    </div>
+
+    <div>
+      <div class="aim">
+        <h2>Set the head to</h2>
+        <div class="aimrow"><span class="lbl">Pan (encoder)</span><span class="val" id="a-pan">&mdash;</span></div>
+        <div class="aimrow"><span class="lbl">Tilt</span><span class="val" id="a-tilt">&mdash;</span></div>
+        <div class="aimrow"><span class="lbl">Zoom</span><span class="val" id="a-zoom">&mdash;</span></div>
+        <div class="aimrow"><span class="lbl">True bearing</span><span class="val" id="a-bear">&mdash;</span></div>
+        <div class="aimrow"><span class="lbl">Range</span><span class="val" id="a-rng">&mdash;</span></div>
+        <p class="note2" id="a-note">Waiting for a fix.</p>
+        <div class="aimrow" style="border-top:1px solid var(--line);margin-top:8px;padding-top:10px">
+          <span class="lbl">Station says</span><span class="val" id="a-state">&mdash;</span>
+        </div>
+        <p class="note2" id="a-refuse"></p>
+        <div class="act">
+          <button id="copy">Copy pan/tilt/zoom</button>
+        </div>
+      </div>
+      <p class="banner2" style="margin-top:12px"><b>Read-only, and so is the station today.</b>
+        aim_service.py solves every request through the real safety gate and then refuses it
+        with <em>aiming is not enabled on this station yet</em> &mdash; the VAPIX move is a
+        deliberate TODO. The aim below is real and checked; nothing is moving yet.</p>
+    </div>
+  </div>
+</div>
+
+<script>window.LOCATOR_API = "https://axgwhvyiwplcsjichkkj.supabase.co/functions/v1/locator";</script>
+<script type="module">
+import { solveAim, sunConflict, STATION, FOR_START, FOR_END, horizonKm } from "./assets/station.js";
+
+const API_BASE = window.LOCATOR_API || "";
+const q = (id) => document.getElementById(id);
+const dot = (t) => "<span class=\"dot\"></span>" + t;
+const b_operator = (feed) => (feed && feed.beacon && feed.beacon.operator) || null;
+function setChip(el, cls, html) {
+    el.className = "chip" + (cls ? " " + cls : "");
+    el.querySelector(".v").innerHTML = html;
+}
+
+/* Plan view. Station at the centre-right; the arc opens west over the bay.
+   Scale is fixed to the horizon so the picture never lies about how far out something is. */
+const CX = 470, CY = 210, R_PX = 400, SCALE = R_PX / horizonKm;   // px per km
+const polar = (bearingDeg, km) => {
+    const a = (bearingDeg - 90) * Math.PI / 180;
+    return [CX + Math.cos(a) * km * SCALE, CY + Math.sin(a) * km * SCALE];
+};
+
+(function drawStatic() {
+    const rings = q("rings"), labels = q("labels");
+    for (const km of [1, 2, 4, 6, 8, 10]) {
+        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        c.setAttribute("cx", CX); c.setAttribute("cy", CY);
+        c.setAttribute("r", km * SCALE);
+        c.setAttribute("fill", "none");
+        c.setAttribute("stroke", "#22353D");
+        c.setAttribute("stroke-width", km === 10 ? "1.2" : "0.7");
+        rings.appendChild(c);
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        const [tx, ty] = polar(225, km);
+        t.setAttribute("x", tx); t.setAttribute("y", ty);
+        t.setAttribute("fill", "#4A5C64");
+        t.setAttribute("font-family", "IBM Plex Mono, monospace");
+        t.setAttribute("font-size", "9");
+        t.textContent = km + " km";
+        labels.appendChild(t);
+    }
+    const [ax, ay] = polar(FOR_START, horizonKm);
+    const [bx, by] = polar(FOR_END, horizonKm);
+    q("arc").setAttribute("d",
+        "M " + CX + " " + CY + " L " + ax + " " + ay +
+        " A " + R_PX + " " + R_PX + " 0 0 1 " + bx + " " + by + " Z");
+    q("station").setAttribute("cx", CX);
+    q("station").setAttribute("cy", CY);
+    for (const [b, txt] of [[FOR_START, "208"], [FOR_END, "332"]]) {
+        const [lx, ly] = polar(b, horizonKm * 0.93);
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("x", lx); t.setAttribute("y", ly);
+        t.setAttribute("fill", "#4FD9E8");
+        t.setAttribute("font-family", "IBM Plex Mono, monospace");
+        t.setAttribute("font-size", "10");
+        t.textContent = txt;
+        labels.appendChild(t);
+    }
+})();
+
+let current = null, currentSession = null;
+
+function render(feed) {
+    const now = Date.now();
+    q("clock").textContent = new Date().toLocaleTimeString();
+
+    const STATUS = {
+        live: ["ok", "Live"], stale: ["warn", "Stale"], lost: ["bad", "Lost"],
+        idle: ["", "Idle"], error: ["bad", "Error"],
+    };
+    const st = STATUS[feed.status] || ["bad", feed.status || "unreachable"];
+    setChip(q("c-status"), st[0], dot(st[1]));
+    setChip(q("c-age"), feed.fixAgeMs == null ? "" : feed.fixAgeMs > 30000 ? "bad" : "ok",
+        feed.fixAgeMs == null ? "never" : (feed.fixAgeMs / 1000).toFixed(0) + "s");
+    setChip(q("c-store"), feed.configured ? "ok" : "bad",
+        dot(feed.configured ? "aim_requests" : "Not configured"));
+
+    if (!feed.beacon) {
+        q("a-note").textContent = feed.note || "No beacon has reported.";
+        q("target").setAttribute("opacity", "0");
+        q("aimline").setAttribute("opacity", "0");
+        q("a-state").textContent = "—";
+        return;
+    }
+
+    q("k-feed").textContent = b_operator(feed) || "Feed";
+    const b = feed.beacon;
+    currentSession = b.session;
+    const s = solveAim({ lat: b.lat, lon: b.lon, accuracy: b.accuracy, speed: b.speed, t: b.t });
+    const sc = sunConflict(s.bearingDeg, s.tiltDeg);
+    current = s;
+
+    q("a-pan").textContent = s.panDeg.toFixed(2) + "°";
+    q("a-tilt").textContent = s.tiltDeg.toFixed(2) + "°";
+    q("a-zoom").textContent = s.zoomX.toFixed(1) + "×";
+    q("a-bear").textContent = s.bearingDeg.toFixed(2) + "°T";
+    q("a-rng").textContent = s.rangeMi.toFixed(2) + " mi";
+
+    const parts = [];
+    parts.push("Subject about " + s.subjectPx.toFixed(0) + " px tall at " + s.zoomX.toFixed(1) + "x.");
+    parts.push("Position error " + s.errorM.toFixed(0) + " m (GPS " + s.accuracyM.toFixed(0)
+        + " m + " + s.leadM.toFixed(0) + " m lead).");
+    if (!s.inArc) parts.push("OUTSIDE the field of regard - the head cannot point here.");
+    if (sc.conflict) parts.push("Aim is " + sc.separationDeg.toFixed(1)
+        + " deg from the sun; checkAimSafety will hard-deny it.");
+    else if (sc.separationDeg != null && sc.separationDeg < 20)
+        parts.push("Only " + sc.separationDeg.toFixed(0) + " deg off the sun - expect glare.");
+    if (!s.resolvable) parts.push("Under 24 px: holdable, but not worth much footage.");
+    if (feed.status !== "live") parts.push("This position is " + feed.status + ", not current.");
+    q("a-note").textContent = parts.join(" ");
+
+    const [tx, ty] = polar(s.bearingDeg, Math.min(s.rangeKm, horizonKm));
+    q("tgt-dot").setAttribute("cx", tx); q("tgt-dot").setAttribute("cy", ty);
+    q("tgt-err").setAttribute("cx", tx); q("tgt-err").setAttribute("cy", ty);
+    q("tgt-err").setAttribute("r", Math.max(4, (s.errorM / 1000) * SCALE));
+    q("target").setAttribute("opacity", feed.status === "live" ? "1" : "0.45");
+    q("aimline").setAttribute("x1", CX); q("aimline").setAttribute("y1", CY);
+    q("aimline").setAttribute("x2", tx); q("aimline").setAttribute("y2", ty);
+    q("aimline").setAttribute("opacity", "0.55");
+    const sv = feed.station || {};
+    const STATE_LABEL = {
+        pending: "Queued", accepted: "Accepted", slewing: "Slewing",
+        on_target: "On target", refused: "Refused", expired: "Expired", done: "Released",
+    };
+    q("a-state").textContent = sv.state ? (STATE_LABEL[sv.state] || sv.state) : "—";
+    q("a-state").style.color = sv.state === "on_target" ? "var(--station)"
+        : sv.state === "refused" || sv.state === "expired" ? "var(--amber)" : "var(--text)";
+    q("a-refuse").textContent = sv.refuseReason || "";
+    if (sv.bearingDeg != null) {
+        q("a-refuse").textContent += (sv.refuseReason ? "  " : "")
+            + "Station solved " + sv.bearingDeg.toFixed(2) + " deg / "
+            + (sv.zoomX != null ? sv.zoomX.toFixed(1) + "x" : "no zoom")
+            + (sv.rangeKm != null ? " at " + sv.rangeKm.toFixed(2) + " km." : ".");
+    }
+}
+
+async function tick() {
+    try {
+        const res = await fetch(API_BASE + "/api/live", { cache: "no-store" });
+        const feed = await res.json().catch(() => null);
+        if (!feed) throw new Error("unparseable");
+        render(feed);
+    } catch (e) {
+        setChip(q("c-status"), "bad", dot("Unreachable"));
+        q("a-note").textContent = "Cannot reach /api/live from this page.";
+    }
+}
+tick();
+setInterval(tick, 2000);
+
+q("copy").addEventListener("click", async () => {
+    if (!current) return;
+    const text = "pan " + current.panDeg.toFixed(2) + " tilt " + current.tiltDeg.toFixed(2)
+        + " zoom " + current.zoomX.toFixed(1);
+    try { await navigator.clipboard.writeText(text); q("copy").textContent = "Copied"; }
+    catch (e) { q("copy").textContent = text; }
+    setTimeout(() => { q("copy").textContent = "Copy pan/tilt/zoom"; }, 1800);
+});
+
+</script>
+</body>
+</html>

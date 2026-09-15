@@ -1,0 +1,18 @@
+{
+    "name": "Leviathan Locator",
+    "short_name": "Locator",
+    "description": "One tap sends your position to the Leviathan station so the camera can find you.",
+    "start_url": "/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#05090C",
+    "theme_color": "#05090C",
+    "icons": [
+        {
+            "src": "/assets/icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any"
+        }
+    ]
+}
